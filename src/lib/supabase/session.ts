@@ -60,7 +60,12 @@ export function signSupabaseJwt(userId: string, phone: string): string {
     iat: now,
     exp: now + 60 * 60, // 1 hour
     phone,
-    session_id: crypto.randomUUID(),
+    // NOTE: Do NOT include a `session_id` claim. Supabase's GoTrue treats a
+    // `session_id` claim as a reference to a real row in `auth.sessions` and
+    // returns 403 "session_not_found" when it can't find one. Our sessions are
+    // custom-signed (not created via Supabase's auth flow), so omitting the
+    // claim lets GoTrue accept the token as a valid user. Verified: a token
+    // without `session_id` returns 200 from GET /auth/v1/user.
   };
 
   const header = { alg: "HS256", typ: "JWT" };
