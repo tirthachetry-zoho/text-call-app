@@ -71,7 +71,10 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
       const pc = new RTCPeerConnection(rtcConfig);
       pcRef.current = pc;
 
-      localStreamRef.current?.getTracks().forEach((track) => pc.addTrack(track, localStreamRef.current!));
+      // Add local tracks if we already have them (caller side).
+      if (localStreamRef.current) {
+        localStreamRef.current.getTracks().forEach((track) => pc.addTrack(track, localStreamRef.current!));
+      }
 
       pc.onicecandidate = (e) => {
         if (e.candidate) {
@@ -91,6 +94,19 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
     },
     [sendSignal],
   );
+
+  // Add the local microphone stream to an already-created peer connection
+  // (used on the callee side, after the user accepts and grants mic access).
+  const attachLocalStream = React.useCallback(() => {
+    const pc = pcRef.current;
+    const stream = localStreamRef.current;
+    if (!pc || !stream) return;
+    stream.getTracks().forEach((track) => {
+      // Avoid adding the same track twice.
+      if (pc.getSenders().some((s) => s.track === track)) return;
+      pc.addTrack(track, stream);
+    });
+  }, []);
 
   const startCall = React.useCallback(
     async (peer: User, connectionId: string) => {
@@ -123,9 +139,12 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
   const accept = React.useCallback(async () => {
     if (call.status !== "incoming") return;
     const stream = await ensureStream();
-    const pc = setupPeer(call.peer.id) as PeerWithOffer;
-    const offer = pc._pendingOffer as RTCSessionDescriptionInit;
-    await pc.setRemoteDescription(offer);
+    // Reuse the SAME peer connection that received the offer (it already
+    // holds the pending offer). Creating a new one would lose it.
+    const pc = pcRef.current as PeerWithOffer | null;
+    if (!pc || !pc._pendingOffer) return;
+    attachLocalStream();
+    await pc.setRemoteDescription(pc._pendingOffer);
     const answer = await pc.createAnswer();
     await pc.setLocalDescription(answer);
     await sendSignal(call.peer.id, { type: "answer", sdp: answer });
@@ -135,7 +154,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
       body: JSON.stringify({ call_id: call.callId, action: "accept" }),
     });
     setCall({ ...call, status: "connected", startedAt: Date.now() });
-  }, [call, ensureStream, setupPeer, sendSignal]);
+  }, [call, ensureStream, attachLocalStream, sendSignal]);
 
   const reject = React.useCallback(async () => {
     if (call.status !== "incoming") return;
@@ -205,15 +224,16 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
             const connectionId = callRow?.connection_id ?? "";
             const cid = callRow?.id ?? crypto.randomUUID();
             callIdRef.current = cid;
+            // Create the peer connection now and stash the offer so accept()
+            // can reuse the exact same pc.
+            const pc = setupPeer(msg.from) as PeerWithOffer;
+            pc._pendingOffer = msg.sdp;
             setCall({
               status: "incoming",
               peer: peer as User,
               callId: cid,
               connectionId,
             });
-            // Stash the offer for accept().
-            const pc = setupPeer(msg.from) as PeerWithOffer;
-            pc._pendingOffer = msg.sdp;
           });
       } else if (msg.type === "answer" && pcRef.current) {
         pcRef.current.setRemoteDescription(msg.sdp);

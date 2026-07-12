@@ -41,6 +41,10 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
 
   React.useEffect(() => setMounted(true), []);
 
+  // On mobile, hide the sidebar when viewing a conversation so the chat is
+  // full-screen (a back button in the conversation returns to the list).
+  const isChatRoute = pathname?.startsWith("/dashboard/chat");
+
   async function handleSignOut() {
     await signOut();
     router.push("/login");
@@ -58,7 +62,12 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
   return (
     <div className="flex h-screen overflow-hidden bg-background">
       {/* Left Sidebar */}
-      <aside className="flex w-16 flex-col items-center border-r bg-card py-4 md:w-64 md:items-stretch md:px-3">
+      <aside
+        className={cn(
+          "flex w-16 flex-col items-center border-r bg-card py-4 md:w-64 md:items-stretch md:px-3",
+          isChatRoute && "hidden md:flex",
+        )}
+      >
         <div className="mb-6 flex items-center gap-2 px-2 md:px-2">
           <div className="flex h-9 w-9 items-center justify-center rounded-full bg-primary text-primary-foreground">
             <Phone className="h-5 w-5" />

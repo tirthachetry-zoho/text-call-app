@@ -74,6 +74,8 @@ export function useRealtime() {
 
 /**
  * Send a WebRTC signaling message to a specific peer over the broadcast channel.
+ * We join the target's personal channel before sending so the broadcast is
+ * reliably tracked/routed by the Realtime server, then leave it afterwards.
  */
 export function useSignalSender() {
   const { user } = useAuth();
@@ -81,11 +83,15 @@ export function useSignalSender() {
     async (to: string, msg: OutgoingSignal) => {
       if (!user) return;
       const supabase = createClient();
-      await supabase.channel(`user:${to}`).send({
+      const ch = supabase.channel(`user:${to}`);
+      await ch.subscribe();
+      await ch.send({
         type: "broadcast",
         event: "signal",
         payload: { ...msg, from: user.id, to } as SignalMessage,
       });
+      // Give the server a moment to flush, then clean up.
+      setTimeout(() => supabase.removeChannel(ch), 500);
     },
     [user],
   );

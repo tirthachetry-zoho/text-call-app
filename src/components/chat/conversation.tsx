@@ -1,8 +1,8 @@
 "use client";
 
 import * as React from "react";
-import { useParams } from "next/navigation";
-import { Send, Phone, Search, MoreVertical, Trash2, Paperclip, Smile, X } from "lucide-react";
+import { useParams, useRouter } from "next/navigation";
+import { Send, Phone, Search, ArrowLeft, MoreVertical, Trash2, Paperclip, Smile, X } from "lucide-react";
 import { toast } from "sonner";
 import { useAuth } from "@/components/auth/auth-context";
 import { useRealtime } from "@/components/realtime/realtime-provider";
@@ -20,6 +20,7 @@ const EMOJIS = ["😀", "😂", "😍", "👍", "🙏", "🔥", "🎉", "❤️"
 export function Conversation() {
   const params = useParams<{ id: string }>();
   const connectionId = params.id;
+  const router = useRouter();
   const { user } = useAuth();
   const { subscribe } = useRealtime();
   const { startCall } = useCall();
@@ -70,16 +71,7 @@ export function Conversation() {
     loadMessages().finally(() => setLoading(false));
   }, [user, connectionId, loadMessages]);
 
-  // Realtime: new messages + receipts.
-  React.useEffect(() => {
-    const unsub = subscribe((e) => {
-      if (e.kind === "notification") return;
-      if (e.kind === "signal") return;
-    });
-    return unsub;
-  }, [subscribe]);
-
-  // Supabase realtime postgres changes for messages.
+  // Supabase realtime postgres changes for messages (live updates).
   React.useEffect(() => {
     if (!user || !connectionId) return;
     const supabase = createClient();
@@ -87,26 +79,23 @@ export function Conversation() {
       .channel(`messages:${connectionId}`)
       .on(
         "postgres_changes",
-        { event: "INSERT", schema: "public", table: "mca_messages", filter: `connection_id=eq.${connectionId}` },
+        { event: "*", schema: "public", table: "mca_messages", filter: `connection_id=eq.${connectionId}` },
         (payload) => {
-          const m = payload.new as Message;
-          setMessages((prev) => (prev.some((x) => x.id === m.id) ? prev : [...prev, m]));
-          // Mark as delivered/read if we are the recipient.
-          if (m.sender_id !== user.id) {
-            fetch("/api/messages/receipt", {
-              method: "PATCH",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ message_id: m.id, status: "read" }),
-            });
+          if (payload.eventType === "INSERT") {
+            const m = payload.new as Message;
+            setMessages((prev) => (prev.some((x) => x.id === m.id) ? prev : [...prev, m]));
+            // Mark as read if we are the recipient.
+            if (m.sender_id !== user.id) {
+              fetch("/api/messages/receipt", {
+                method: "PATCH",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ message_id: m.id, status: "read" }),
+              });
+            }
+          } else if (payload.eventType === "UPDATE") {
+            const m = payload.new as Message;
+            setMessages((prev) => prev.map((x) => (x.id === m.id ? m : x)));
           }
-        },
-      )
-      .on(
-        "postgres_changes",
-        { event: "UPDATE", schema: "public", table: "mca_messages", filter: `connection_id=eq.${connectionId}` },
-        (payload) => {
-          const m = payload.new as Message;
-          setMessages((prev) => prev.map((x) => (x.id === m.id ? m : x)));
         },
       )
       .subscribe();
@@ -171,6 +160,15 @@ export function Conversation() {
     <div className="flex flex-1 flex-col">
       {/* Header */}
       <div className="flex items-center gap-3 border-b p-3">
+        <Button
+          size="icon"
+          variant="ghost"
+          className="md:hidden"
+          onClick={() => router.push("/dashboard")}
+          aria-label="Back"
+        >
+          <ArrowLeft className="h-5 w-5" />
+        </Button>
         <Avatar className="h-10 w-10">
           <AvatarImage src={peer.avatar ?? undefined} />
           <AvatarFallback>{(peer.display_name ?? peer.phone_number).slice(0, 2)}</AvatarFallback>
