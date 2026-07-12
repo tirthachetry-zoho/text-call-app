@@ -7,6 +7,7 @@ import { createClient } from "@/lib/supabase/client";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Skeleton } from "@/components/ui/skeleton";
 import { EmptyState } from "@/components/dashboard/empty-state";
+import { maskPhone } from "@/lib/utils";
 import type { User } from "@/lib/types";
 
 interface CallLog {
@@ -109,7 +110,7 @@ export default function CallsPage() {
               </Avatar>
               <div className="min-w-0 flex-1">
                 <p className="truncate text-sm font-medium">
-                  {log.peer?.display_name || log.peer?.phone_number || "Unknown"}
+                  {log.peer?.display_name || (log.peer?.phone_number ? maskPhone(log.peer.phone_number) : "Unknown")}
                 </p>
                 <p className="flex items-center gap-1.5 truncate text-xs text-muted-foreground">
                   <Icon log={log} />

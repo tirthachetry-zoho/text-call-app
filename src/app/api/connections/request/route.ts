@@ -129,11 +129,11 @@ export async function POST(req: NextRequest) {
   // Notify recipient.
   const { data: senderProfile } = await supabase
     .from("mca_users")
-    .select("display_name, phone_number")
+    .select("display_name")
     .eq("id", user.id)
     .single();
 
-  const label = senderProfile?.display_name || senderProfile?.phone_number || "Someone";
+  const label = senderProfile?.display_name || "Someone";
   await supabase.from("mca_notifications").insert({
     user_id: recipient.id,
     type: "connection_request",

@@ -101,22 +101,24 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
-  // Notify peer (skip if connection is muted).
-  if (!conn.muted) {
-    const { data: senderProfile } = await supabase
-      .from("mca_users")
-      .select("display_name, phone_number")
-      .eq("id", user.id)
-      .single();
-    const label = senderProfile?.display_name || senderProfile?.phone_number || "Someone";
-    await supabase.from("mca_notifications").insert({
-      user_id: peerId,
-      type: "message",
-      title: label,
-      body: content ? content.slice(0, 200) : "Sent an attachment",
-      reference_id: created.id,
-    });
-  }
+    // Notify peer (skip if connection is muted). Note: message content is
+    // end-to-end encrypted client-side, so the server only ever sees
+    // ciphertext — we send a generic body rather than the (encrypted) text.
+    if (!conn.muted) {
+      const { data: senderProfile } = await supabase
+        .from("mca_users")
+        .select("display_name")
+        .eq("id", user.id)
+        .single();
+      const label = senderProfile?.display_name || "Someone";
+      await supabase.from("mca_notifications").insert({
+        user_id: peerId,
+        type: "message",
+        title: label,
+        body: "Sent you a message",
+        reference_id: created.id,
+      });
+    }
 
   return NextResponse.json({ message: created });
 }

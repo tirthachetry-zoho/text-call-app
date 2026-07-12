@@ -5,7 +5,7 @@ import { Phone, PhoneOff, Mic, MicOff, Loader2 } from "lucide-react";
 import { useCall } from "@/components/call/call-context";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
-import { formatDuration } from "@/lib/utils";
+import { formatDuration, maskPhone } from "@/lib/utils";
 
 export function CallOverlay() {
   const { call, accept, reject, end, cancel, toggleMute, muted } = useCall();
@@ -38,7 +38,7 @@ export function CallOverlay() {
           </Avatar>
 
           <div className="text-center">
-            <p className="text-lg font-semibold">{peer.display_name || peer.phone_number}</p>
+            <p className="text-lg font-semibold">{peer.display_name || maskPhone(peer.phone_number)}</p>
             <p className="text-sm text-muted-foreground">
               {isIncoming && "Incoming call…"}
               {isOutgoing && "Calling…"}

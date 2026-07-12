@@ -9,6 +9,7 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { EmptyState } from "@/components/dashboard/empty-state";
+import { maskPhone } from "@/lib/utils";
 import type { User } from "@/lib/types";
 
 interface RequestItem {
@@ -117,10 +118,10 @@ export default function RequestsPage() {
               </Avatar>
               <div className="min-w-0 flex-1">
                 <p className="truncate text-sm font-medium">
-                  {item.sender.display_name || item.sender.phone_number}
+                  {item.sender.display_name || maskPhone(item.sender.phone_number)}
                 </p>
                 <p className="truncate text-xs text-muted-foreground">
-                  {item.sender.phone_number}
+                  {maskPhone(item.sender.phone_number)}
                 </p>
               </div>
               <div className="flex gap-2">

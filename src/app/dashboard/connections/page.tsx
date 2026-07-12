@@ -9,6 +9,7 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { EmptyState } from "@/components/dashboard/empty-state";
+import { maskPhone } from "@/lib/utils";
 import type { User } from "@/lib/types";
 
 interface ConnectionItem {
@@ -93,10 +94,10 @@ export default function ConnectionsPage() {
               </Avatar>
               <div className="min-w-0 flex-1">
                 <p className="truncate text-sm font-medium">
-                  {item.peer.display_name || item.peer.phone_number}
+                  {item.peer.display_name || maskPhone(item.peer.phone_number)}
                 </p>
                 <p className="truncate text-xs text-muted-foreground">
-                  {item.peer.phone_number}
+                  {maskPhone(item.peer.phone_number)}
                 </p>
               </div>
               <Button
