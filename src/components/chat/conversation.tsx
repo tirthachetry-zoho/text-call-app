@@ -12,7 +12,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Skeleton } from "@/components/ui/skeleton";
-import { cn, formatPhone, timeAgo } from "@/lib/utils";
+import { cn, maskPhone, timeAgo } from "@/lib/utils";
 import { encryptMessage, decryptMessage } from "@/lib/crypto";
 import type { Message, User } from "@/lib/types";
 
@@ -189,7 +189,7 @@ export function Conversation() {
           <AvatarFallback>{(peer.display_name ?? peer.phone_number).slice(0, 2)}</AvatarFallback>
         </Avatar>
         <div className="min-w-0 flex-1">
-          <p className="truncate text-sm font-semibold">{peer.display_name || formatPhone(peer.phone_number)}</p>
+          <p className="truncate text-sm font-semibold">{peer.display_name || maskPhone(peer.phone_number)}</p>
           <p className="text-xs text-muted-foreground">
             {typing ? "typing…" : isOnline(peer.id) ? "online" : "offline"}
           </p>

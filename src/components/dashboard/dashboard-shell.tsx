@@ -19,7 +19,7 @@ import { useAuth } from "@/components/auth/auth-context";
 import { useRealtime } from "@/components/realtime/realtime-provider";
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { cn } from "@/lib/utils";
+import { cn, maskPhone } from "@/lib/utils";
 import { NotificationBell } from "@/components/dashboard/notification-bell";
 import { CallOverlay } from "@/components/call/call-overlay";
 
@@ -105,9 +105,9 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
             </Avatar>
             <div className="min-w-0 flex-1">
               <p className="truncate text-sm font-medium">
-                {user.display_name || user.phone_number}
+                {user.display_name || maskPhone(user.phone_number)}
               </p>
-              <p className="truncate text-xs text-muted-foreground">{user.phone_number}</p>
+              <p className="truncate text-xs text-muted-foreground">{maskPhone(user.phone_number)}</p>
             </div>
           </div>
           <div className="flex items-center justify-center gap-1 md:justify-start">
