@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { Search, UserPlus, Phone } from "lucide-react";
 import { toast } from "sonner";
 import { useAuth } from "@/components/auth/auth-context";
+import { useRealtime } from "@/components/realtime/realtime-provider";
 import { createClient } from "@/lib/supabase/client";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -12,6 +13,8 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { ConnectionRequestDialog } from "@/components/connections/connection-request-dialog";
+import { maskPhone, cn } from "@/lib/utils";
+import { decryptMessage } from "@/lib/crypto";
 import type { User } from "@/lib/types";
 
 interface ChatItem {
@@ -25,6 +28,7 @@ interface ChatItem {
 export function ChatList() {
   const router = useRouter();
   const { user } = useAuth();
+  const { isOnline } = useRealtime();
   const [items, setItems] = React.useState<ChatItem[]>([]);
   const [loading, setLoading] = React.useState(true);
   const [reqOpen, setReqOpen] = React.useState(false);
@@ -70,9 +74,60 @@ export function ChatList() {
     load();
   }, [load]);
 
+  // Realtime: keep the last-message preview fresh as new messages arrive.
+  React.useEffect(() => {
+    if (!user) return;
+    const supabase = createClient();
+    const ch = supabase
+      .channel("chat-list-messages")
+      .on(
+        "postgres_changes",
+        { event: "INSERT", schema: "public", table: "mca_messages" },
+        async (payload) => {
+          const m = payload.new as { connection_id: string; sender_id: string; content: string | null };
+          setItems((prev) => {
+            const target = prev.find((i) => i.connection_id === m.connection_id);
+            if (!target) return prev;
+            const preview = m.content
+              ? `${m.sender_id === user.id ? "You: " : ""}${m.content}`
+              : target.last_message;
+            return [
+              { ...target, last_message: preview, last_at: new Date().toISOString() },
+              ...prev.filter((i) => i.connection_id !== m.connection_id),
+            ];
+          });
+        },
+      )
+      .subscribe();
+    return () => {
+      supabase.removeChannel(ch);
+    };
+  }, [user]);
+
   const filtered = items.filter((i) =>
     (i.peer.display_name ?? i.peer.phone_number).toLowerCase().includes(query.toLowerCase()),
   );
+
+  // Decrypt the last-message preview for each chat.
+  const [decryptedPreviews, setDecryptedPreviews] = React.useState<Record<string, string>>({});
+  React.useEffect(() => {
+    if (!user) return;
+    let active = true;
+    (async () => {
+      const out: Record<string, string> = {};
+      await Promise.all(
+        items.map(async (i) => {
+          out[i.connection_id] = i.last_message
+            ? await decryptMessage(i.last_message, i.connection_id, user.id, i.peer_id)
+            : "No messages yet";
+        }),
+      );
+      if (active) setDecryptedPreviews(out);
+    })();
+    return () => {
+      active = false;
+    };
+  }, [items, user]);
 
   return (
     <div className="flex w-full flex-col border-r md:w-80">
@@ -107,24 +162,38 @@ export function ChatList() {
             No chats yet. Add a connection to start messaging.
           </div>
         ) : (
-          filtered.map((item) => (
-            <button
-              key={item.connection_id}
-              onClick={() => router.push(`/dashboard/chat/${item.connection_id}`)}
-              className="flex w-full items-center gap-3 border-b p-3 text-left transition-colors hover:bg-accent"
-            >
-              <Avatar className="h-10 w-10">
-                <AvatarImage src={item.peer.avatar ?? undefined} />
-                <AvatarFallback>{(item.peer.display_name ?? item.peer.phone_number).slice(0, 2)}</AvatarFallback>
-              </Avatar>
-              <div className="min-w-0 flex-1">
-                <p className="truncate text-sm font-medium">
-                  {item.peer.display_name || item.peer.phone_number}
-                </p>
-                <p className="truncate text-xs text-muted-foreground">{item.last_message}</p>
-              </div>
-            </button>
-          ))
+          filtered.map((item) => {
+            const online = isOnline(item.peer_id);
+            return (
+              <button
+                key={item.connection_id}
+                onClick={() => router.push(`/dashboard/chat/${item.connection_id}`)}
+                className="flex w-full items-center gap-3 border-b p-3 text-left transition-colors hover:bg-accent"
+              >
+                <div className="relative">
+                  <Avatar className="h-10 w-10">
+                    <AvatarImage src={item.peer.avatar ?? undefined} />
+                    <AvatarFallback>{(item.peer.display_name ?? item.peer.phone_number).slice(0, 2)}</AvatarFallback>
+                  </Avatar>
+                  <span
+                    className={cn(
+                      "absolute -bottom-0.5 -right-0.5 h-3 w-3 rounded-full border-2 border-background",
+                      online ? "bg-green-500" : "bg-muted-foreground/40",
+                    )}
+                    title={online ? "Online" : "Offline"}
+                  />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-sm font-medium">
+                    {item.peer.display_name || maskPhone(item.peer.phone_number)}
+                  </p>
+                  <p className="truncate text-xs text-muted-foreground">
+                    {decryptedPreviews[item.connection_id] ?? item.last_message}
+                  </p>
+                </div>
+              </button>
+            );
+          })
         )}
       </div>
 

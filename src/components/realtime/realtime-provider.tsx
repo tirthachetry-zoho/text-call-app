@@ -10,15 +10,20 @@ export type RealtimeEvent =
   | { kind: "signal"; payload: SignalMessage }
   | { kind: "presence"; userId: string; status: string };
 
+// A single shared channel that every connected client joins. Presence state
+// here is synced by the Realtime server over the websocket, so online/offline
+// changes propagate to all subscribers within milliseconds.
+const PRESENCE_CHANNEL = "global-presence";
+
 const RealtimeContext = React.createContext<{
   subscribe: (cb: (e: RealtimeEvent) => void) => () => void;
+  isOnline: (userId: string) => boolean;
+  onlineUsers: Set<string>;
 } | null>(null);
 
 export function RealtimeProvider({ children }: { children: React.ReactNode }) {
   const { user } = useAuth();
-  const [channel, setChannel] = React.useState<ReturnType<ReturnType<typeof createClient>["channel"]> | null>(
-    null,
-  );
+  const [onlineUsers, setOnlineUsers] = React.useState<Set<string>>(new Set());
   const listeners = React.useRef(new Set<(e: RealtimeEvent) => void>());
 
   const subscribe = React.useCallback((cb: (e: RealtimeEvent) => void) => {
@@ -26,43 +31,88 @@ export function RealtimeProvider({ children }: { children: React.ReactNode }) {
     return () => listeners.current.delete(cb);
   }, []);
 
+  const isOnline = React.useCallback(
+    (userId: string) => onlineUsers.has(userId),
+    [onlineUsers],
+  );
+
   React.useEffect(() => {
     if (!user) return;
     const supabase = createClient();
-    const ch = supabase.channel(`user:${user.id}`, {
+
+    // Personal channel: incoming notifications + WebRTC signaling.
+    const personal = supabase.channel(`user:${user.id}`, {
       config: { presence: { key: user.id } },
     });
 
-    ch.on(
-      "postgres_changes",
-      { event: "INSERT", schema: "public", table: "mca_notifications", filter: `user_id=eq.${user.id}` },
-      (payload) => {
-        listeners.current.forEach((cb) =>
-          cb({ kind: "notification", payload: payload.new as AppNotification }),
-        );
-      },
-    )
+    personal
+      .on(
+        "postgres_changes",
+        { event: "INSERT", schema: "public", table: "mca_notifications", filter: `user_id=eq.${user.id}` },
+        (payload) => {
+          listeners.current.forEach((cb) =>
+            cb({ kind: "notification", payload: payload.new as AppNotification }),
+          );
+        },
+      )
       .on("broadcast", { event: "signal" }, (payload) => {
         listeners.current.forEach((cb) => cb({ kind: "signal", payload: payload.payload as SignalMessage }));
       })
-      .on("presence", { event: "sync" }, () => {
-        const state = ch.presenceState();
-        Object.entries(state).forEach(([userId, presences]) => {
-          const status = (presences as Array<{ status?: string }>)[0]?.status;
-          if (status) {
-            listeners.current.forEach((cb) => cb({ kind: "presence", userId, status }));
-          }
-        });
-      })
       .subscribe();
 
-    setChannel(ch);
+    // Shared presence channel: track who is online in real-time.
+    const presence = supabase.channel(PRESENCE_CHANNEL, {
+      config: { presence: { key: user.id } },
+    });
+
+    const syncOnline = () => {
+      const state = presence.presenceState<{ online?: boolean }>();
+      const ids = new Set<string>();
+      for (const [key, presences] of Object.entries(state)) {
+        const isOnline = (presences as Array<{ online?: boolean }>)[0]?.online;
+        if (isOnline) ids.add(key);
+      }
+      setOnlineUsers(ids);
+    };
+
+    presence
+      .on("presence", { event: "sync" }, syncOnline)
+      .on("presence", { event: "join" }, syncOnline)
+      .on("presence", { event: "leave" }, syncOnline)
+      .subscribe(async (status) => {
+        if (status === "SUBSCRIBED") {
+          await presence.track({ online: true });
+          // Persist our online state to the presence table as a fallback /
+          // for clients that cannot use the realtime channel.
+          await supabase
+            .from("mca_presence")
+            .upsert({ user_id: user.id, status: "online", updated_at: new Date().toISOString() }, { onConflict: "user_id" })
+            .throwOnError();
+        }
+      });
+
+    // Mark ourselves offline when the tab is hidden / closed.
+    const markOffline = () => {
+      presence.untrack();
+      supabase
+        .from("mca_presence")
+        .update({ status: "offline", updated_at: new Date().toISOString() })
+        .eq("user_id", user.id)
+        .then(() => supabase.removeChannel(presence));
+    };
+    window.addEventListener("beforeunload", markOffline);
+
     return () => {
-      supabase.removeChannel(ch);
+      window.removeEventListener("beforeunload", markOffline);
+      supabase.removeChannel(personal);
+      markOffline();
     };
   }, [user]);
 
-  const value = React.useMemo(() => ({ subscribe }), [subscribe]);
+  const value = React.useMemo(
+    () => ({ subscribe, isOnline, onlineUsers }),
+    [subscribe, isOnline, onlineUsers],
+  );
   return <RealtimeContext.Provider value={value}>{children}</RealtimeContext.Provider>;
 }
 

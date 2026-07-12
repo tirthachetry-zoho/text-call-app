@@ -13,6 +13,7 @@ import { Input } from "@/components/ui/input";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn, formatPhone, timeAgo } from "@/lib/utils";
+import { encryptMessage, decryptMessage } from "@/lib/crypto";
 import type { Message, User } from "@/lib/types";
 
 const EMOJIS = ["😀", "😂", "😍", "👍", "🙏", "🔥", "🎉", "❤️", "😎", "🤔", "👋", "✅"];
@@ -22,7 +23,7 @@ export function Conversation() {
   const connectionId = params.id;
   const router = useRouter();
   const { user } = useAuth();
-  const { subscribe } = useRealtime();
+  const { subscribe, isOnline } = useRealtime();
   const { startCall } = useCall();
 
   const [peer, setPeer] = React.useState<User | null>(null);
@@ -46,11 +47,23 @@ export function Conversation() {
       const res = await fetch(url);
       const data = await res.json();
       if (res.ok) {
-        setMessages((prev) => (before ? [...data.messages, ...prev] : data.messages));
+        const decrypted = await Promise.all(
+          (data.messages as Message[]).map(async (m) => ({
+            ...m,
+            content: await decryptMessage(m.content, connectionId, user!.id, peerId()),
+          })),
+        );
+        setMessages((prev) => (before ? [...decrypted, ...prev] : decrypted));
       }
     },
-    [connectionId],
+    [connectionId, user, peer],
   );
+
+  // The other participant's id for this connection.
+  const peerId = React.useCallback((): string => {
+    if (!peer) return "";
+    return peer.id;
+  }, [peer]);
 
   React.useEffect(() => {
     if (!user || !connectionId) return;
@@ -73,17 +86,18 @@ export function Conversation() {
 
   // Supabase realtime postgres changes for messages (live updates).
   React.useEffect(() => {
-    if (!user || !connectionId) return;
+    if (!user || !connectionId || !peer) return;
     const supabase = createClient();
     const ch = supabase
       .channel(`messages:${connectionId}`)
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "mca_messages", filter: `connection_id=eq.${connectionId}` },
-        (payload) => {
+        async (payload) => {
+          const m = payload.new as Message;
+          const decrypted = { ...m, content: await decryptMessage(m.content, connectionId, user.id, peer.id) };
           if (payload.eventType === "INSERT") {
-            const m = payload.new as Message;
-            setMessages((prev) => (prev.some((x) => x.id === m.id) ? prev : [...prev, m]));
+            setMessages((prev) => (prev.some((x) => x.id === m.id) ? prev : [...prev, decrypted]));
             // Mark as read if we are the recipient.
             if (m.sender_id !== user.id) {
               fetch("/api/messages/receipt", {
@@ -93,8 +107,7 @@ export function Conversation() {
               });
             }
           } else if (payload.eventType === "UPDATE") {
-            const m = payload.new as Message;
-            setMessages((prev) => prev.map((x) => (x.id === m.id ? m : x)));
+            setMessages((prev) => prev.map((x) => (x.id === m.id ? decrypted : x)));
           }
         },
       )
@@ -102,20 +115,22 @@ export function Conversation() {
     return () => {
       supabase.removeChannel(ch);
     };
-  }, [user, connectionId]);
+  }, [user, connectionId, peer]);
 
   React.useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
   }, [messages]);
 
   async function send() {
-    if (!text.trim()) return;
+    if (!text.trim() || !user || !peer) return;
     const content = text.trim();
     setText("");
+    // Encrypt before sending so the DB only ever stores ciphertext.
+    const encrypted = await encryptMessage(content, connectionId, user.id, peer.id);
     const res = await fetch("/api/messages", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ connection_id: connectionId, content }),
+      body: JSON.stringify({ connection_id: connectionId, content: encrypted }),
     });
     if (!res.ok) {
       toast.error("Failed to send message.");
@@ -175,7 +190,9 @@ export function Conversation() {
         </Avatar>
         <div className="min-w-0 flex-1">
           <p className="truncate text-sm font-semibold">{peer.display_name || formatPhone(peer.phone_number)}</p>
-          <p className="text-xs text-muted-foreground">{typing ? "typing…" : peer.status}</p>
+          <p className="text-xs text-muted-foreground">
+            {typing ? "typing…" : isOnline(peer.id) ? "online" : "offline"}
+          </p>
         </div>
         <Button size="icon" variant="ghost" onClick={() => startCall(peer, connectionId)} aria-label="Call">
           <Phone className="h-5 w-5" />
