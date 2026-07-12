@@ -1,5 +1,6 @@
 import crypto from "node:crypto";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { normalizePhone } from "@/lib/utils";
 
 /**
  * Ensure a Supabase auth user exists for the given phone number.
@@ -12,16 +13,18 @@ export async function ensureUser(
   displayName?: string,
 ): Promise<string> {
   const admin = createAdminClient();
+  const normalized = normalizePhone(phoneNumber);
+
   const { data: existing } = await admin
     .from("mca_users")
     .select("id")
-    .eq("phone_number", phoneNumber)
+    .eq("phone_number", normalized)
     .maybeSingle();
 
   if (existing) return existing.id;
 
   const { data: created, error } = await admin.auth.admin.createUser({
-    phone: phoneNumber,
+    phone: normalized,
     phone_confirm: true,
     user_metadata: displayName ? { display_name: displayName } : undefined,
   });

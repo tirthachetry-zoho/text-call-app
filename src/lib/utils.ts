@@ -9,6 +9,18 @@ export function cn(...inputs: ClassValue[]) {
 }
 
 /**
+ * Normalize a phone number to digits only (strips +, spaces, dashes, etc.).
+ *
+ * Supabase stores `auth.users.phone` WITHOUT the leading '+', and the
+ * `on_auth_user_created` trigger copies that value into
+ * `mca_users.phone_number`. Normalizing every lookup/comparison to digits
+ * only keeps the app consistent with what is actually persisted.
+ */
+export function normalizePhone(phone: string): string {
+  return (phone ?? "").replace(/\D/g, "");
+}
+
+/**
  * Format a phone number for display (best-effort E.164 masking).
  */
 export function formatPhone(phone: string): string {

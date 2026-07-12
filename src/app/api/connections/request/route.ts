@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { sendConnectionRequestSchema } from "@/lib/validations";
 import { rateLimit, rateLimitedResponse } from "@/lib/rate-limit";
+import { normalizePhone } from "@/lib/utils";
 
 /**
  * POST /api/connections/request
@@ -35,7 +36,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Invalid phone number." }, { status: 400 });
   }
 
-  const targetPhone = parsed.data.phone_number;
+  const targetPhone = normalizePhone(parsed.data.phone_number);
 
   // Resolve recipient by phone number.
   const { data: recipient, error: recipientErr } = await supabase
