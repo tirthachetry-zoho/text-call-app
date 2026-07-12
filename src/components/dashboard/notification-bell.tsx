@@ -6,11 +6,12 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import type { AppNotification } from "@/lib/types";
+import type { RealtimeEvent } from "@/components/realtime/realtime-provider";
 
 export function NotificationBell({
   subscribe,
 }: {
-  subscribe: (cb: (e: { kind: string; payload: any }) => void) => () => void;
+  subscribe: (cb: (e: RealtimeEvent) => void) => () => void;
 }) {
   const [open, setOpen] = React.useState(false);
   const [items, setItems] = React.useState<AppNotification[]>([]);

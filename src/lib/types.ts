@@ -106,3 +106,9 @@ export type SignalMessage =
   | { type: "call-accepted"; from: string; to: string; callId: string }
   | { type: "call-rejected"; from: string; to: string; callId: string }
   | { type: "call-cancelled"; from: string; to: string; callId: string };
+
+// Distributive Omit so each union member keeps its own fields.
+type DistributiveOmit<T, K extends PropertyKey> = T extends unknown ? Omit<T, K> : never;
+
+// Signal payload sent by the app before the `from`/`to`/`callId` envelope is added.
+export type OutgoingSignal = DistributiveOmit<SignalMessage, "from" | "to" | "callId">;

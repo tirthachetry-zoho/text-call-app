@@ -27,7 +27,13 @@ export async function GET() {
   }
 
   // Resolve the peer (the side that is not the current user).
-  const connections = (data ?? []).map((c: any) => {
+  const connections = (data ?? []).map((c: {
+    id: string;
+    muted: boolean;
+    created_at: string;
+    user_a: string;
+    user_b: string;
+  }) => {
     const peerId = c.user_a === user.id ? c.user_b : c.user_a;
     return {
       connection_id: c.id,

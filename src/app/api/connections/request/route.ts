@@ -93,7 +93,6 @@ export async function POST(req: NextRequest) {
   }
 
   // Rejection cooldown?
-  const cooldownHours = Number(process.env.REJECTION_COOLDOWN_HOURS ?? 24);
   const { data: cooldown } = await supabase
     .from("mca_rejection_cooldowns")
     .select("expires_at")

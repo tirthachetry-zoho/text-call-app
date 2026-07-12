@@ -42,7 +42,7 @@ export function ChatList() {
       return;
     }
     const peers = await Promise.all(
-      conns.map(async (c: any) => {
+      conns.map(async (c: { id: string; user_a: string; user_b: string }) => {
         const peerId = c.user_a === user.id ? c.user_b : c.user_a;
         const { data: peer } = await supabase.from("mca_users").select("*").eq("id", peerId).single();
         const { data: last } = await supabase

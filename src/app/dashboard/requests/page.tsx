@@ -38,7 +38,7 @@ export default function RequestsPage() {
       return;
     }
     const senders = await Promise.all(
-      reqs.map(async (r: any) => {
+      reqs.map(async (r: { id: string; sender_id: string; created_at: string }) => {
         const { data: sender } = await supabase
           .from("mca_users")
           .select("*")

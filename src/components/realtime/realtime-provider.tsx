@@ -5,7 +5,7 @@ import { createClient } from "@/lib/supabase/client";
 import { useAuth } from "@/components/auth/auth-context";
 import type { AppNotification, SignalMessage, OutgoingSignal } from "@/lib/types";
 
-type RealtimeEvent =
+export type RealtimeEvent =
   | { kind: "notification"; payload: AppNotification }
   | { kind: "signal"; payload: SignalMessage }
   | { kind: "presence"; userId: string; status: string };
@@ -48,9 +48,9 @@ export function RealtimeProvider({ children }: { children: React.ReactNode }) {
       .on("presence", { event: "sync" }, () => {
         const state = ch.presenceState();
         Object.entries(state).forEach(([userId, presences]) => {
-          const p = (presences as any[])[0];
-          if (p?.status) {
-            listeners.current.forEach((cb) => cb({ kind: "presence", userId, status: p.status }));
+          const status = (presences as Array<{ status?: string }>)[0]?.status;
+          if (status) {
+            listeners.current.forEach((cb) => cb({ kind: "presence", userId, status }));
           }
         });
       })

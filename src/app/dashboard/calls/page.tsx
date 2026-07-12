@@ -44,13 +44,13 @@ export default function CallsPage() {
       return;
     }
     const withPeers = await Promise.all(
-      logs.map(async (log: any) => {
+      logs.map(async (log: CallLog) => {
         const { data: peer } = await supabase
           .from("mca_users")
           .select("*")
           .eq("id", log.peer_id)
           .maybeSingle();
-        return { ...(log as CallLog), peer: peer as User } as CallLog;
+        return { ...log, peer: peer as User } as CallLog;
       }),
     );
     setItems(withPeers);

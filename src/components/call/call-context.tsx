@@ -25,6 +25,12 @@ interface CallContextValue {
 
 const CallContext = React.createContext<CallContextValue | null>(null);
 
+// RTCPeerConnection with a custom field used to stash the incoming offer
+// until the user accepts the call.
+interface PeerWithOffer extends RTCPeerConnection {
+  _pendingOffer?: RTCSessionDescriptionInit;
+}
+
 const rtcConfig: RTCConfiguration = {
   iceServers: [
     { urls: "stun:stun.l.google.com:19302" },
@@ -117,8 +123,8 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
   const accept = React.useCallback(async () => {
     if (call.status !== "incoming") return;
     const stream = await ensureStream();
-    const pc = setupPeer(call.peer.id);
-    const offer = (pc as any)._pendingOffer as RTCSessionDescriptionInit;
+    const pc = setupPeer(call.peer.id) as PeerWithOffer;
+    const offer = pc._pendingOffer as RTCSessionDescriptionInit;
     await pc.setRemoteDescription(offer);
     const answer = await pc.createAnswer();
     await pc.setLocalDescription(answer);
@@ -194,7 +200,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
             const { data: callRow } = await supabase
               .from("mca_calls")
               .select("id, connection_id")
-              .eq("id", (msg as any).callId ?? "")
+              .eq("id", msg.callId ?? "")
               .maybeSingle();
             const connectionId = callRow?.connection_id ?? "";
             const cid = callRow?.id ?? crypto.randomUUID();
@@ -206,8 +212,8 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
               connectionId,
             });
             // Stash the offer for accept().
-            const pc = setupPeer(msg.from);
-            (pc as any)._pendingOffer = msg.sdp;
+            const pc = setupPeer(msg.from) as PeerWithOffer;
+            pc._pendingOffer = msg.sdp;
           });
       } else if (msg.type === "answer" && pcRef.current) {
         pcRef.current.setRemoteDescription(msg.sdp);

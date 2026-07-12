@@ -35,7 +35,7 @@ export default function ConnectionsPage() {
       return;
     }
     const peers = await Promise.all(
-      conns.map(async (c: any) => {
+      conns.map(async (c: { id: string; user_a: string; user_b: string }) => {
         const peerId = c.user_a === user.id ? c.user_b : c.user_a;
         const { data: peer } = await supabase
           .from("mca_users")
@@ -58,7 +58,7 @@ export default function ConnectionsPage() {
       <div className="border-b p-4">
         <h1 className="text-lg font-semibold">Connections</h1>
         <p className="text-sm text-muted-foreground">
-          People you're connected with.
+          {`People you're connected with.`}
         </p>
       </div>
 

@@ -73,11 +73,12 @@ export async function POST(req: NextRequest) {
   }
 
   // Verify membership.
-  const { data: conn } = await supabase
+  const { data: connData } = await supabase
     .from("mca_connections")
-    .select("user_a, user_b")
+    .select("user_a, user_b, muted")
     .eq("id", connection_id)
     .single();
+  const conn = connData as { user_a: string; user_b: string; muted: boolean } | null;
   if (!conn || (conn.user_a !== user.id && conn.user_b !== user.id)) {
     return NextResponse.json({ error: "Forbidden." }, { status: 403 });
   }
