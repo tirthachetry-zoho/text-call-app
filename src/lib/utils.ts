@@ -32,6 +32,17 @@ export function formatPhone(phone: string): string {
 }
 
 /**
+ * Mask a phone number so only the last 4 digits are visible, e.g. "•••• 1234".
+ * Used wherever a phone number is shown to the user.
+ */
+export function maskPhone(phone: string): string {
+  if (!phone) return "";
+  const digits = phone.replace(/\D/g, "");
+  if (digits.length <= 4) return digits;
+  return `•••• ${digits.slice(-4)}`;
+}
+
+/**
  * Format seconds into mm:ss.
  */
 export function formatDuration(totalSeconds: number): string {
