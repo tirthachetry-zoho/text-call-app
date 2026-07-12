@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import { useRouter } from "next/navigation";
-import { Phone, User, Loader2 } from "lucide-react";
+import { Phone, User, Loader2, MessageSquare, PhoneCall, UserPlus, Bell, Ban } from "lucide-react";
 import { toast } from "sonner";
 import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
@@ -49,8 +49,16 @@ export default function LoginPage() {
     }
   }
 
+  const features = [
+    { icon: UserPlus, label: "Connect by phone" },
+    { icon: MessageSquare, label: "Realtime chat" },
+    { icon: PhoneCall, label: "Voice calls" },
+    { icon: Bell, label: "Notifications" },
+    { icon: Ban, label: "Block users" },
+  ];
+
   return (
-    <div className="flex min-h-screen items-center justify-center bg-gradient-to-br from-primary/10 via-background to-background p-4">
+    <div className="flex min-h-screen flex-col items-center justify-center gap-6 bg-gradient-to-br from-primary/10 via-background to-background p-4">
       <Card className="w-full max-w-md animate-fade-in">
         <CardHeader className="text-center">
           <div className="mx-auto mb-2 flex h-12 w-12 items-center justify-center rounded-full bg-primary/10 text-primary">
@@ -104,6 +112,23 @@ export default function LoginPage() {
           </Button>
         </CardContent>
       </Card>
+
+      <div className="w-full max-w-md">
+        <p className="mb-3 text-center text-xs font-medium uppercase tracking-wide text-muted-foreground">
+          What you can do
+        </p>
+        <ul className="grid grid-cols-2 gap-2">
+          {features.map((f) => (
+            <li
+              key={f.label}
+              className="flex items-center gap-2 rounded-lg border bg-card/50 px-3 py-2 text-sm"
+            >
+              <f.icon className="h-4 w-4 text-primary" />
+              <span>{f.label}</span>
+            </li>
+          ))}
+        </ul>
+      </div>
     </div>
   );
 }
