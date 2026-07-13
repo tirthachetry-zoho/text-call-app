@@ -2,8 +2,7 @@
 
 import * as React from "react";
 import { useRouter } from "next/navigation";
-import { Search, UserPlus, Phone } from "lucide-react";
-import { toast } from "sonner";
+import { Search, UserPlus } from "lucide-react";
 import { useAuth } from "@/components/auth/auth-context";
 import { useRealtime } from "@/components/realtime/realtime-provider";
 import { createClient } from "@/lib/supabase/client";
@@ -15,15 +14,12 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } f
 import { ConnectionRequestDialog } from "@/components/connections/connection-request-dialog";
 import { maskPhone, cn } from "@/lib/utils";
 import { decryptMessage } from "@/lib/crypto";
-import type { User } from "@/lib/types";
-
-interface ChatItem {
-  connection_id: string;
-  peer_id: string;
-  peer: User;
-  last_message?: string;
-  last_at?: string;
-}
+import {
+  getCachedChatList,
+  setCachedChatList,
+  updateCachedChatPreview,
+} from "@/lib/chat-cache";
+import type { ChatItem, User } from "@/lib/types";
 
 export function ChatList() {
   const router = useRouter();
@@ -57,27 +53,50 @@ export function ChatList() {
           .order("created_at", { ascending: false })
           .limit(1)
           .maybeSingle();
+        // Decrypt the preview up-front so the list never flashes encrypted text.
+        const last_message = last?.content
+          ? await decryptMessage(last.content, c.id, user.id, peerId)
+          : "No messages yet";
         return {
           connection_id: c.id,
           peer_id: peerId,
           peer: peer as User,
-          last_message: last?.content ?? "No messages yet",
+          last_message,
           last_at: last?.created_at,
         } as ChatItem;
       }),
     );
-    setItems(peers.filter((p) => p.peer));
+    const valid = peers.filter((p) => p.peer);
+    setItems(valid);
+    setCachedChatList(user.id, valid);
     setLoading(false);
   }, [user]);
 
   React.useEffect(() => {
+    if (!user) return;
+    // Render cached chats instantly, then revalidate in the background.
+    const cached = getCachedChatList(user.id);
+    if (cached) {
+      setItems(cached);
+      setLoading(false);
+    }
     load();
-  }, [load]);
+  }, [load, user]);
 
   // Realtime: keep the last-message preview fresh as new messages arrive.
+  // We decrypt the incoming message immediately and store the decrypted
+  // preview directly on the item, so there is a single source of truth and
+  // no flicker between an encrypted value and a separately-decrypted one.
+  const itemsRef = React.useRef(items);
+  itemsRef.current = items;
+
   React.useEffect(() => {
     if (!user) return;
     const supabase = createClient();
+    // `createClient()` is a singleton, so `channel()` reuses a cached channel
+    // by topic. Remove any pre-existing instance first to avoid re-using an
+    // already-subscribed channel (e.g. across StrictMode double-invoke).
+    supabase.removeChannel(supabase.channel("chat-list-messages"));
     const ch = supabase
       .channel("chat-list-messages")
       .on(
@@ -85,17 +104,28 @@ export function ChatList() {
         { event: "INSERT", schema: "public", table: "mca_messages" },
         async (payload) => {
           const m = payload.new as { connection_id: string; sender_id: string; content: string | null };
+          if (!m.content) return;
+
+          const target = itemsRef.current.find((i) => i.connection_id === m.connection_id);
+          if (!target) return;
+
+          const decrypted = await decryptMessage(m.content, m.connection_id, user.id, target.peer_id);
+          const preview = `${m.sender_id === user.id ? "You: " : ""}${decrypted}`;
+
           setItems((prev) => {
-            const target = prev.find((i) => i.connection_id === m.connection_id);
-            if (!target) return prev;
-            const preview = m.content
-              ? `${m.sender_id === user.id ? "You: " : ""}${m.content}`
-              : target.last_message;
+            const existingTarget = prev.find((i) => i.connection_id === m.connection_id);
+            if (!existingTarget) return prev;
             return [
-              { ...target, last_message: preview, last_at: new Date().toISOString() },
+              { ...existingTarget, last_message: preview, last_at: new Date().toISOString() },
               ...prev.filter((i) => i.connection_id !== m.connection_id),
             ];
           });
+          if (user) {
+            updateCachedChatPreview(user.id, m.connection_id, {
+              last_message: preview,
+              last_at: new Date().toISOString(),
+            });
+          }
         },
       )
       .subscribe();
@@ -107,27 +137,6 @@ export function ChatList() {
   const filtered = items.filter((i) =>
     (i.peer.display_name ?? i.peer.phone_number).toLowerCase().includes(query.toLowerCase()),
   );
-
-  // Decrypt the last-message preview for each chat.
-  const [decryptedPreviews, setDecryptedPreviews] = React.useState<Record<string, string>>({});
-  React.useEffect(() => {
-    if (!user) return;
-    let active = true;
-    (async () => {
-      const out: Record<string, string> = {};
-      await Promise.all(
-        items.map(async (i) => {
-          out[i.connection_id] = i.last_message
-            ? await decryptMessage(i.last_message, i.connection_id, user.id, i.peer_id)
-            : "No messages yet";
-        }),
-      );
-      if (active) setDecryptedPreviews(out);
-    })();
-    return () => {
-      active = false;
-    };
-  }, [items, user]);
 
   return (
     <div className="flex w-full flex-col border-r md:w-80">
@@ -188,7 +197,7 @@ export function ChatList() {
                     {item.peer.display_name || maskPhone(item.peer.phone_number)}
                   </p>
                   <p className="truncate text-xs text-muted-foreground">
-                    {decryptedPreviews[item.connection_id] ?? item.last_message}
+                    {item.last_message}
                   </p>
                 </div>
               </button>

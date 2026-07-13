@@ -52,6 +52,15 @@ export interface Message {
   created_at: string;
 }
 
+// A single row in the chat-list sidebar (peer + last-message preview).
+export interface ChatItem {
+  connection_id: string;
+  peer_id: string;
+  peer: User;
+  last_message?: string;
+  last_at?: string;
+}
+
 export interface Call {
   id: string;
   connection_id: string;

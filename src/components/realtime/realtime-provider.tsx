@@ -40,6 +40,15 @@ export function RealtimeProvider({ children }: { children: React.ReactNode }) {
     if (!user) return;
     const supabase = createClient();
 
+    // `createClient()` returns a singleton, so `supabase.channel(name)` reuses
+    // a cached channel by topic across effect runs (e.g. React StrictMode's
+    // double-invoke in dev). Re-using an already-subscribed channel and then
+    // calling `.on()` on it throws "cannot add `presence` callbacks ... after
+    // `subscribe()`". Remove any pre-existing channels with the same topic so
+    // we always start from a fresh, unsubscribed channel.
+    supabase.removeChannel(supabase.channel(`user:${user.id}`));
+    supabase.removeChannel(supabase.channel(PRESENCE_CHANNEL));
+
     // Personal channel: incoming notifications + WebRTC signaling.
     const personal = supabase.channel(`user:${user.id}`, {
       config: { presence: { key: user.id } },
@@ -62,15 +71,18 @@ export function RealtimeProvider({ children }: { children: React.ReactNode }) {
 
     // Shared presence channel: track who is online in real-time.
     const presence = supabase.channel(PRESENCE_CHANNEL, {
-      config: { presence: { key: user.id } },
+      config: {
+        presence: {
+          key: user.id,
+        },
+      },
     });
 
     const syncOnline = () => {
-      const state = presence.presenceState<{ online?: boolean }>();
+      const state = presence.presenceState();
       const ids = new Set<string>();
       for (const [key, presences] of Object.entries(state)) {
-        const isOnline = (presences as Array<{ online?: boolean }>)[0]?.online;
-        if (isOnline) ids.add(key);
+        if (presences.length > 0) ids.add(key);
       }
       setOnlineUsers(ids);
     };
@@ -79,12 +91,11 @@ export function RealtimeProvider({ children }: { children: React.ReactNode }) {
       .on("presence", { event: "sync" }, syncOnline)
       .on("presence", { event: "join" }, syncOnline)
       .on("presence", { event: "leave" }, syncOnline)
-      .subscribe(async (status) => {
+      .subscribe((status) => {
         if (status === "SUBSCRIBED") {
-          await presence.track({ online: true });
           // Persist our online state to the presence table as a fallback /
           // for clients that cannot use the realtime channel.
-          await supabase
+          supabase
             .from("mca_presence")
             .upsert({ user_id: user.id, status: "online", updated_at: new Date().toISOString() }, { onConflict: "user_id" })
             .throwOnError();

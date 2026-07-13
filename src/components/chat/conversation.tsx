@@ -14,6 +14,11 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn, maskPhone, timeAgo } from "@/lib/utils";
 import { encryptMessage, decryptMessage } from "@/lib/crypto";
+import {
+  getCachedMessages,
+  setCachedMessages,
+  upsertCachedMessage,
+} from "@/lib/chat-cache";
 import type { Message, User } from "@/lib/types";
 
 const EMOJIS = ["😀", "😂", "😍", "👍", "🙏", "🔥", "🎉", "❤️", "😎", "🤔", "👋", "✅"];
@@ -39,8 +44,16 @@ export function Conversation() {
   const scrollRef = React.useRef<HTMLDivElement>(null);
   const typingTimeout = React.useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // The other participant's id for this connection. Kept in a ref so message
+  // loading and the realtime handler don't depend on the whole `peer` object —
+  // depending on `peer` would re-run the load effect and re-flash the loading
+  // skeleton every time the peer resolves.
+  const peerIdRef = React.useRef<string>("");
+
   const loadMessages = React.useCallback(
     async (before?: string) => {
+      const pid = peerIdRef.current;
+      if (!pid) return;
       const url = before
         ? `/api/messages?connection_id=${connectionId}&before=${encodeURIComponent(before)}`
         : `/api/messages?connection_id=${connectionId}`;
@@ -50,54 +63,77 @@ export function Conversation() {
         const decrypted = await Promise.all(
           (data.messages as Message[]).map(async (m) => ({
             ...m,
-            content: await decryptMessage(m.content, connectionId, user!.id, peerId()),
+            content: await decryptMessage(m.content, connectionId, user!.id, pid),
           })),
         );
-        setMessages((prev) => (before ? [...decrypted, ...prev] : decrypted));
+        if (before) {
+          setMessages((prev) => [...decrypted, ...prev]);
+        } else {
+          setMessages(decrypted);
+          setCachedMessages(connectionId, decrypted);
+        }
       }
     },
-    [connectionId, user, peer],
+    [connectionId, user],
   );
-
-  // The other participant's id for this connection.
-  const peerId = React.useCallback((): string => {
-    if (!peer) return "";
-    return peer.id;
-  }, [peer]);
 
   React.useEffect(() => {
     if (!user || !connectionId) return;
-    setLoading(true);
+    let cancelled = false;
     const supabase = createClient();
-    // Resolve peer.
-    supabase
-      .from("mca_connections")
-      .select("user_a, user_b")
-      .eq("id", connectionId)
-      .single()
-      .then(async ({ data: conn }) => {
-        if (!conn) return;
-        const peerId = conn.user_a === user.id ? conn.user_b : conn.user_a;
-        const { data: p } = await supabase.from("mca_users").select("*").eq("id", peerId).single();
-        setPeer((p as User) ?? null);
-      });
-    loadMessages().finally(() => setLoading(false));
+    // Render cached history instantly, then revalidate in the background.
+    const cached = getCachedMessages(connectionId);
+    if (cached) {
+      setMessages(cached);
+      setLoading(false);
+    } else {
+      setLoading(true);
+    }
+    // Resolve peer, then load messages — sequentially so messages are only
+    // fetched once the peer id is known (decryption needs it). Running this
+    // once (loadMessages is now stable) avoids re-flashing the loading
+    // skeleton when the peer object resolves.
+    (async () => {
+      const { data: conn } = await supabase
+        .from("mca_connections")
+        .select("user_a, user_b")
+        .eq("id", connectionId)
+        .single();
+      if (!conn || cancelled) return;
+      const pid = conn.user_a === user.id ? conn.user_b : conn.user_a;
+      peerIdRef.current = pid;
+      const { data: p } = await supabase.from("mca_users").select("*").eq("id", pid).single();
+      if (cancelled) return;
+      setPeer((p as User) ?? null);
+      await loadMessages();
+      if (!cancelled) setLoading(false);
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, [user, connectionId, loadMessages]);
 
   // Supabase realtime postgres changes for messages (live updates).
   React.useEffect(() => {
-    if (!user || !connectionId || !peer) return;
+    if (!user || !connectionId) return;
     const supabase = createClient();
+    // `createClient()` is a singleton, so `channel()` reuses a cached channel
+    // by topic. Remove any pre-existing instance first to avoid re-using an
+    // already-subscribed channel (e.g. across StrictMode double-invoke).
+    supabase.removeChannel(supabase.channel(`messages:${connectionId}`));
     const ch = supabase
       .channel(`messages:${connectionId}`)
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "mca_messages", filter: `connection_id=eq.${connectionId}` },
         async (payload) => {
+          const pid = peerIdRef.current;
+          if (!pid) return;
           const m = payload.new as Message;
-          const decrypted = { ...m, content: await decryptMessage(m.content, connectionId, user.id, peer.id) };
+          const decrypted = { ...m, content: await decryptMessage(m.content, connectionId, user.id, pid) };
           if (payload.eventType === "INSERT") {
             setMessages((prev) => (prev.some((x) => x.id === m.id) ? prev : [...prev, decrypted]));
+            upsertCachedMessage(connectionId, decrypted);
             // Mark as read if we are the recipient.
             if (m.sender_id !== user.id) {
               fetch("/api/messages/receipt", {
@@ -108,6 +144,7 @@ export function Conversation() {
             }
           } else if (payload.eventType === "UPDATE") {
             setMessages((prev) => prev.map((x) => (x.id === m.id ? decrypted : x)));
+            upsertCachedMessage(connectionId, decrypted);
           }
         },
       )
@@ -115,7 +152,7 @@ export function Conversation() {
     return () => {
       supabase.removeChannel(ch);
     };
-  }, [user, connectionId, peer]);
+  }, [user, connectionId]);
 
   React.useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
