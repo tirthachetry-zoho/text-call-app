@@ -21,6 +21,7 @@ interface CallContextValue {
   cancel: () => Promise<void>;
   toggleMute: () => void;
   muted: boolean;
+  remoteStream: MediaStream | null;
 }
 
 const CallContext = React.createContext<CallContextValue | null>(null);
@@ -44,6 +45,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
   const sendSignal = useSignalSender();
   const [call, setCall] = React.useState<CallState>({ status: "idle" });
   const [muted, setMuted] = React.useState(false);
+  const [remoteStream, setRemoteStream] = React.useState<MediaStream | null>(null);
 
   const pcRef = React.useRef<RTCPeerConnection | null>(null);
   const localStreamRef = React.useRef<MediaStream | null>(null);
@@ -56,6 +58,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
     localStreamRef.current?.getTracks().forEach((t) => t.stop());
     localStreamRef.current = null;
     remoteStreamRef.current = null;
+    setRemoteStream(null);
     callIdRef.current = null;
   }, []);
 
@@ -83,12 +86,15 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
       };
 
       pc.ontrack = (e) => {
-        remoteStreamRef.current = e.streams[0];
-        // Attach to a hidden audio element for playback.
-        const audio = document.getElementById("remote-audio") as HTMLAudioElement | null;
-        if (audio) {
-          audio.srcObject = e.streams[0];
+        // Build a dedicated remote stream from the received track. Relying on
+        // `e.streams[0]` is fragile — when the peer used `addTrack(track, stream)`
+        // the event's `streams` array is often empty, which left the audio
+        // element with `srcObject = undefined` and produced no sound.
+        if (!remoteStreamRef.current) {
+          remoteStreamRef.current = new MediaStream();
         }
+        remoteStreamRef.current.addTrack(e.track);
+        setRemoteStream(remoteStreamRef.current);
       };
       return pc;
     },
@@ -251,8 +257,8 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
   }, [subscribe, user, call, setupPeer, cleanup]);
 
   const value = React.useMemo(
-    () => ({ call, startCall, accept, reject, end, cancel, toggleMute, muted }),
-    [call, startCall, accept, reject, end, cancel, toggleMute, muted],
+    () => ({ call, startCall, accept, reject, end, cancel, toggleMute, muted, remoteStream }),
+    [call, startCall, accept, reject, end, cancel, toggleMute, muted, remoteStream],
   );
 
   return <CallContext.Provider value={value}>{children}</CallContext.Provider>;

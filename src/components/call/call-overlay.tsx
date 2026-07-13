@@ -8,8 +8,9 @@ import { Button } from "@/components/ui/button";
 import { formatDuration, maskPhone } from "@/lib/utils";
 
 export function CallOverlay() {
-  const { call, accept, reject, end, cancel, toggleMute, muted } = useCall();
+  const { call, accept, reject, end, cancel, toggleMute, muted, remoteStream } = useCall();
   const [elapsed, setElapsed] = React.useState(0);
+  const audioRef = React.useRef<HTMLAudioElement>(null);
 
   React.useEffect(() => {
     if (call.status !== "connected") return;
@@ -17,6 +18,16 @@ export function CallOverlay() {
     const id = setInterval(() => setElapsed(Math.floor((Date.now() - start) / 1000)), 1000);
     return () => clearInterval(id);
   }, [call]);
+
+  // Attach the remote audio stream to the <audio> element and start playback.
+  // `playsInline` + an explicit play() are required for autoplay policies
+  // (especially iOS Safari) so the other party's voice is actually heard.
+  React.useEffect(() => {
+    const audio = audioRef.current;
+    if (!audio || !remoteStream) return;
+    audio.srcObject = remoteStream;
+    audio.play().catch(() => {});
+  }, [remoteStream]);
 
   if (call.status === "idle") return null;
 
@@ -27,7 +38,7 @@ export function CallOverlay() {
 
   return (
     <>
-      <audio id="remote-audio" autoPlay />
+      <audio ref={audioRef} autoPlay playsInline />
       <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm animate-fade-in">
         <div className="flex w-full max-w-sm flex-col items-center gap-6 rounded-2xl bg-card p-8 shadow-2xl">
           <Avatar className="h-24 w-24">
