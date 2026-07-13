@@ -317,10 +317,31 @@ export function Conversation() {
           const mine = m.sender_id === user?.id;
           const isEditing = editingId === m.id;
           return (
-            <div key={m.id} className={cn("flex", mine ? "justify-end" : "justify-start")}>
+            <div
+              key={m.id}
+              className={cn("group flex items-center gap-1", mine ? "justify-end" : "justify-start")}
+            >
+              {mine && !m.deleted_at && !isEditing && (
+                <div className="flex flex-col opacity-0 transition-opacity pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto">
+                  <button
+                    onClick={() => startEdit(m)}
+                    className="rounded-full p-1 text-muted-foreground hover:bg-accent hover:text-foreground"
+                    aria-label="Edit"
+                  >
+                    <Pencil className="h-4 w-4" />
+                  </button>
+                  <button
+                    onClick={() => deleteMessage(m.id)}
+                    className="rounded-full p-1 text-muted-foreground hover:bg-accent hover:text-destructive"
+                    aria-label="Delete"
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </button>
+                </div>
+              )}
               <div
                 className={cn(
-                  "group relative max-w-[75%] rounded-2xl px-3 py-2 text-sm",
+                  "relative max-w-[75%] rounded-2xl px-3 py-2 text-sm",
                   mine ? "bg-primary text-primary-foreground" : "bg-muted",
                 )}
               >
@@ -361,24 +382,6 @@ export function Conversation() {
                   {mine && m.status === "read" && <span>✓✓</span>}
                   {mine && m.status === "delivered" && <span>✓</span>}
                 </div>
-                {mine && !m.deleted_at && !isEditing && (
-                  <>
-                    <button
-                      onClick={() => startEdit(m)}
-                      className="absolute -left-14 top-1/2 hidden -translate-y-1/2 text-muted-foreground hover:text-foreground group-hover:block"
-                      aria-label="Edit"
-                    >
-                      <Pencil className="h-4 w-4" />
-                    </button>
-                    <button
-                      onClick={() => deleteMessage(m.id)}
-                      className="absolute -left-8 top-1/2 hidden -translate-y-1/2 text-muted-foreground hover:text-destructive group-hover:block"
-                      aria-label="Delete"
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </button>
-                  </>
-                )}
               </div>
             </div>
           );
