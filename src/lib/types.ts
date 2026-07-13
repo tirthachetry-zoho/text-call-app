@@ -49,6 +49,7 @@ export interface Message {
   attachment_type: string | null;
   status: MessageStatus;
   deleted_at: string | null;
+  edited_at: string | null;
   created_at: string;
 }
 

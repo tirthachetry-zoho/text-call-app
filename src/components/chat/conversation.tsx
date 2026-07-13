@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import { useParams, useRouter } from "next/navigation";
-import { Send, Phone, Search, ArrowLeft, MoreVertical, Trash2, Paperclip, Smile, X } from "lucide-react";
+import { Send, Phone, Search, ArrowLeft, MoreVertical, Trash2, Paperclip, Smile, X, Pencil } from "lucide-react";
 import { toast } from "sonner";
 import { useAuth } from "@/components/auth/auth-context";
 import { useRealtime } from "@/components/realtime/realtime-provider";
@@ -40,6 +40,8 @@ export function Conversation() {
   const [searchQuery, setSearchQuery] = React.useState("");
   const [searchResults, setSearchResults] = React.useState<Message[]>([]);
   const [showEmoji, setShowEmoji] = React.useState(false);
+  const [editingId, setEditingId] = React.useState<string | null>(null);
+  const [editText, setEditText] = React.useState("");
 
   const scrollRef = React.useRef<HTMLDivElement>(null);
   const typingTimeout = React.useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -190,8 +192,46 @@ export function Conversation() {
       body: JSON.stringify({ message_id: id }),
     });
     if (res.ok) {
-      setMessages((prev) => prev.map((m) => (m.id === id ? { ...m, deleted_at: new Date().toISOString(), content: null } : m)));
+      const patch = { deleted_at: new Date().toISOString(), content: null as string | null };
+      setMessages((prev) => prev.map((m) => (m.id === id ? { ...m, ...patch } : m)));
+      const cached = getCachedMessages(connectionId);
+      if (cached) {
+        setCachedMessages(connectionId, cached.map((m) => (m.id === id ? { ...m, ...patch } : m)));
+      }
     }
+  }
+
+  function startEdit(m: Message) {
+    setEditingId(m.id);
+    setEditText(m.content ?? "");
+  }
+
+  function cancelEdit() {
+    setEditingId(null);
+    setEditText("");
+  }
+
+  async function saveEdit(id: string) {
+    const text = editText.trim();
+    if (!text || !user || !peer) return;
+    // Re-encrypt the edited content client-side; the server only stores ciphertext.
+    const encrypted = await encryptMessage(text, connectionId, user.id, peer.id);
+    const res = await fetch("/api/messages/update", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ message_id: id, content: encrypted }),
+    });
+    if (res.ok) {
+      const patch = { content: text, edited_at: new Date().toISOString() };
+      setMessages((prev) => prev.map((m) => (m.id === id ? { ...m, ...patch } : m)));
+      const cached = getCachedMessages(connectionId);
+      if (cached) {
+        setCachedMessages(connectionId, cached.map((m) => (m.id === id ? { ...m, ...patch } : m)));
+      }
+    } else {
+      toast.error("Failed to edit message.");
+    }
+    cancelEdit();
   }
 
   if (loading) {
@@ -275,6 +315,7 @@ export function Conversation() {
         )}
         {messages.map((m) => {
           const mine = m.sender_id === user?.id;
+          const isEditing = editingId === m.id;
           return (
             <div key={m.id} className={cn("flex", mine ? "justify-end" : "justify-start")}>
               <div
@@ -285,22 +326,58 @@ export function Conversation() {
               >
                 {m.deleted_at ? (
                   <span className="italic opacity-70">This message was deleted</span>
+                ) : isEditing ? (
+                  <div className="flex flex-col gap-2">
+                    <textarea
+                      value={editText}
+                      onChange={(e) => setEditText(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" && !e.shiftKey) {
+                          e.preventDefault();
+                          saveEdit(m.id);
+                        } else if (e.key === "Escape") {
+                          cancelEdit();
+                        }
+                      }}
+                      className="w-full resize-none rounded-md bg-background/90 p-2 text-foreground outline-none"
+                      rows={2}
+                      autoFocus
+                    />
+                    <div className="flex justify-end gap-2">
+                      <Button size="sm" variant="ghost" onClick={cancelEdit}>
+                        Cancel
+                      </Button>
+                      <Button size="sm" onClick={() => saveEdit(m.id)} disabled={!editText.trim()}>
+                        Save
+                      </Button>
+                    </div>
+                  </div>
                 ) : (
                   <span className="whitespace-pre-wrap break-words">{m.content}</span>
                 )}
                 <div className={cn("mt-1 flex items-center gap-1 text-[10px]", mine ? "text-primary-foreground/70" : "text-muted-foreground")}>
                   <span>{timeAgo(m.created_at)}</span>
+                  {m.edited_at && !m.deleted_at && <span>· edited</span>}
                   {mine && m.status === "read" && <span>✓✓</span>}
                   {mine && m.status === "delivered" && <span>✓</span>}
                 </div>
-                {mine && !m.deleted_at && (
-                  <button
-                    onClick={() => deleteMessage(m.id)}
-                    className="absolute -left-8 top-1/2 hidden -translate-y-1/2 text-muted-foreground hover:text-destructive group-hover:block"
-                    aria-label="Delete"
-                  >
-                    <Trash2 className="h-4 w-4" />
-                  </button>
+                {mine && !m.deleted_at && !isEditing && (
+                  <>
+                    <button
+                      onClick={() => startEdit(m)}
+                      className="absolute -left-14 top-1/2 hidden -translate-y-1/2 text-muted-foreground hover:text-foreground group-hover:block"
+                      aria-label="Edit"
+                    >
+                      <Pencil className="h-4 w-4" />
+                    </button>
+                    <button
+                      onClick={() => deleteMessage(m.id)}
+                      className="absolute -left-8 top-1/2 hidden -translate-y-1/2 text-muted-foreground hover:text-destructive group-hover:block"
+                      aria-label="Delete"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </button>
+                  </>
                 )}
               </div>
             </div>

@@ -43,6 +43,11 @@ export const deleteMessageSchema = z.object({
   message_id: z.string().uuid(),
 });
 
+export const editMessageSchema = z.object({
+  message_id: z.string().uuid(),
+  content: z.string().min(1, "Message cannot be empty").max(4000),
+});
+
 export const searchMessagesSchema = z.object({
   connection_id: z.string().uuid(),
   query: z.string().min(1).max(100),

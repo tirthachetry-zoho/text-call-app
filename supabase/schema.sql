@@ -103,10 +103,16 @@ create table if not exists public.mca_messages (
   attachment_type text,
   status message_status not null default 'sent',
   deleted_at timestamptz,
+  edited_at timestamptz,
   created_at timestamptz not null default now()
 );
 
 create index if not exists mca_messages_connection_idx on public.mca_messages (connection_id, created_at desc);
+
+-- Allow messages to be edited (tracks the last edit time). Safe for both
+-- fresh installs (column already present above) and existing databases.
+alter table if exists public.mca_messages
+  add column if not exists edited_at timestamptz;
 create index if not exists mca_messages_sender_idx on public.mca_messages (sender_id);
 
 -- ----------------------------------------------------------------------------
